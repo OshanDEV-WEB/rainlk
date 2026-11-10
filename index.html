@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NBRI Live Weather & Rainfall Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts: Plus Jakarta Sans -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Leaflet.js Free GIS Map CDN -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    },
+                    colors: {
+                        ios: {
+                            blue: '#007AFF',
+                            lightblue: '#E5F1FF',
+                            softbg: '#F2F7FF',
+                            card: 'rgba(255, 255, 255, 0.78)',
+                            glassBorder: 'rgba(255, 255, 255, 0.65)',
+                            textPrimary: '#1C1C1E',
+                            textSecondary: '#6C6C70',
+                            accent: '#34C759',
+                            warning: '#FF9500',
+                            danger: '#FF3B30'
+                        }
+                    },
+                    backdropBlur: {
+                        ios: '20px',
+                    },
+                    boxShadow: {
+                        'ios-card': '0 8px 32px 0 rgba(31, 38, 135, 0.06), 0 2px 8px 0 rgba(0, 122, 255, 0.04)',
+                        'ios-floating': '0 12px 40px 0 rgba(0, 122, 255, 0.12)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #EBF3FF 0%, #F5F8FF 40%, #E3EDFF 100%);
+            min-height: 100vh;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+        }
+
+        .glass-nav {
+            background: rgba(245, 248, 255, 0.88);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+        }
+
+        #mapContainer {
+            height: 480px;
+            width: 100%;
+            border-radius: 1.5rem;
+            z-index: 10;
+        }
+
+        /* Map Pin Pulse Animations */
+        @keyframes pulse-rain {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.15); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        @keyframes pulse-alert {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); }
+            70% { transform: scale(1.25); box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .map-pulse-rain {
+            width: 14px;
+            height: 14px;
+            background-color: #10B981;
+            border: 2px solid #FFFFFF;
+            border-radius: 50%;
+            animation: pulse-rain 2s infinite;
+        }
+
+        .map-pulse-alert {
+            width: 16px;
+            height: 16px;
+            background-color: #EF4444;
+            border: 2px solid #FFFFFF;
+            border-radius: 50%;
+            animation: pulse-alert 1.2s infinite;
+        }
+
+        .map-normal-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #007AFF;
+            border: 1.5px solid #FFFFFF;
+            border-radius: 50%;
+            opacity: 0.8;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 122, 255, 0.25);
+            border-radius: 99px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 122, 255, 0.45);
+        }
+    </style>
+</head>
+<body class="text-ios-textPrimary antialiased selection:bg-ios-blue selection:text-white pb-12">
+
+    <!-- Sticky iOS Header Bar -->
+    <header class="sticky top-0 z-40 glass-nav transition-all duration-300 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
+            <!-- Brand & Title -->
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-ios-blue to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                    <i data-lucide="cloud-rain" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-lg sm:text-xl tracking-tight text-gray-900 flex items-center gap-2">
+                        NBRI Live Station Monitor
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-ios-blue border border-blue-200/60 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Live Sync
+                        </span>
+                    </h1>
+                    <p class="text-xs text-ios-textSecondary font-medium">National Building Research Organisation (Sri Lanka)</p>
+                </div>
+            </div>
+
+            <!-- Header Actions -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div class="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-xs font-semibold text-ios-blue">
+                    <i data-lucide="timer" class="w-3.5 h-3.5 animate-spin"></i>
+                    <span>Auto sync: <strong id="countdownTimer">05:00</strong></span>
+                </div>
+
+                <button onclick="findNearestStation()" class="flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-2xl bg-emerald-500 text-white font-semibold text-xs sm:text-sm shadow-md shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95">
+                    <i data-lucide="locate" class="w-4 h-4"></i>
+                    <span class="hidden md:inline">Near Me</span>
+                </button>
+
+                <button onclick="shareOnWhatsApp()" class="flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-2xl bg-green-500 text-white font-semibold text-xs sm:text-sm shadow-md shadow-green-500/20 hover:bg-green-600 transition-all active:scale-95">
+                    <i data-lucide="share-2" class="w-4 h-4"></i>
+                    <span class="hidden md:inline">WhatsApp</span>
+                </button>
+
+                <button id="refreshBtn" onclick="manualRefresh()" class="flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-2xl bg-white/80 hover:bg-white text-ios-blue font-semibold text-xs sm:text-sm border border-white/80 shadow-sm transition-all active:scale-95">
+                    <i data-lucide="refresh-cw" id="refreshIcon" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+
+        <div id="locationAlert" class="hidden glass-card rounded-2xl p-4 border border-emerald-300 bg-emerald-50/90 text-emerald-900 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold">
+                    <i data-lucide="navigation" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm" id="nearestStationTitle">Nearest Station Detected</h4>
+                    <p class="text-xs text-emerald-700" id="nearestStationSub">Calculating distance...</p>
+                </div>
+            </div>
+            <button onclick="dismissLocationAlert()" class="text-emerald-700 hover:text-emerald-950 p-1">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <!-- Summary Stats Section -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+            <div class="glass-card rounded-3xl p-5 shadow-ios-card relative overflow-hidden group hover:translate-y-[-2px] transition-all">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-ios-textSecondary">Total Stations</span>
+                    <div class="w-9 h-9 rounded-2xl bg-blue-50 text-ios-blue flex items-center justify-center">
+                        <i data-lucide="radio" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <div class="text-3xl font-extrabold text-gray-900" id="statTotal">--</div>
+                <p class="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Live Telemetry Active
+                </p>
+            </div>
+
+            <div class="glass-card rounded-3xl p-5 shadow-ios-card relative overflow-hidden group hover:translate-y-[-2px] transition-all">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-ios-textSecondary">Raining Now</span>
+                    <div class="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <i data-lucide="cloud-drizzle" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <div class="text-3xl font-extrabold text-emerald-600" id="statRaining">--</div>
+                <p class="text-xs text-gray-500 mt-1">Active precipitation</p>
+            </div>
+
+            <div class="glass-card rounded-3xl p-5 shadow-ios-card relative overflow-hidden group hover:translate-y-[-2px] transition-all">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-ios-textSecondary">Rain Alerts</span>
+                    <div class="w-9 h-9 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <div class="text-3xl font-extrabold text-amber-600" id="statAlerts">--</div>
+                <p class="text-xs text-gray-500 mt-1">High precipitation (&gt; 50mm)</p>
+            </div>
+
+            <div class="glass-card rounded-3xl p-5 shadow-ios-card relative overflow-hidden group hover:translate-y-[-2px] transition-all">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-ios-textSecondary">Peak Rainfall</span>
+                    <div class="w-9 h-9 rounded-2xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                        <i data-lucide="umbrella" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <div class="text-3xl font-extrabold text-gray-900" id="statPeak">0 <span class="text-sm font-semibold text-gray-500">mm</span></div>
+                <p class="text-xs text-gray-500 mt-1 truncate" id="statPeakLocation">Highest 24h reading</p>
+            </div>
+        </section>
+
+        <!-- Animated Free Interactive GIS Map Section -->
+        <section class="glass-card rounded-3xl p-5 sm:p-6 shadow-ios-card space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-gray-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                        <i data-lucide="map" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-extrabold text-lg text-gray-900 flex items-center gap-2">
+                            Sri Lanka Real-Time Animated Rainfall Map
+                        </h2>
+                        <p class="text-xs text-gray-500 font-medium">Live pulse animations: <span class="text-emerald-600 font-bold">🟢 Active Rain</span> &bull; <span class="text-red-500 font-bold">🔴 High Alert (&gt;50mm)</span></p>
+                    </div>
+                </div>
+                <button onclick="resetMapView()" class="text-xs font-bold text-ios-blue bg-blue-100/80 px-3 py-1.5 rounded-xl border border-blue-200 hover:bg-ios-blue hover:text-white transition-all flex items-center gap-1">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Reset Map Center
+                </button>
+            </div>
+
+            <div id="mapContainer" class="shadow-inner border border-white"></div>
+        </section>
+
+        <!-- Spotlight Section -->
+        <section class="glass-card rounded-3xl p-5 sm:p-6 shadow-ios-card space-y-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-gray-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20">
+                        <i data-lucide="flame" class="w-5 h-5 text-amber-200"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-extrabold text-lg text-gray-900 flex items-center gap-2">
+                            වැඩිම වර්ෂාපතනය / Highest Rainfall Stations
+                        </h2>
+                        <p class="text-xs text-gray-500 font-medium">Top high-precipitation stations recorded across Sri Lanka (Past 24 Hours)</p>
+                    </div>
+                </div>
+                <span class="text-xs font-bold text-ios-blue bg-blue-100/80 px-3 py-1 rounded-full border border-blue-200">
+                    Live Telemetry Spotlight
+                </span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="topRainfallCards">
+                <!-- Dynamically Populated -->
+            </div>
+        </section>
+
+        <!-- Toolbar -->
+        <section class="glass-card rounded-3xl p-4 sm:p-5 shadow-ios-card flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="relative w-full md:w-96">
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input 
+                    type="text" 
+                    id="searchInput"
+                    oninput="handleSearchFilter()"
+                    placeholder="Search 480+ stations by name or district..." 
+                    class="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/90 text-sm font-medium border border-blue-100/80 focus:outline-none focus:ring-2 focus:ring-ios-blue/40 focus:border-ios-blue transition-all shadow-inner placeholder-gray-400"
+                >
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-between md:justify-end">
+                <div class="flex items-center bg-gray-200/50 p-1 rounded-2xl border border-white/50 text-xs font-semibold">
+                    <button onclick="setFilter('all')" id="btnFilterAll" class="px-3 py-2 rounded-xl transition-all bg-white text-ios-blue shadow-sm font-bold">All</button>
+                    <button onclick="setFilter('raining')" id="btnFilterRaining" class="px-3 py-2 rounded-xl transition-all text-gray-600 hover:text-gray-900">Raining</button>
+                    <button onclick="setFilter('alerts')" id="btnFilterAlerts" class="px-3 py-2 rounded-xl transition-all text-gray-600 hover:text-gray-900">Alerts (&gt;50mm)</button>
+                </div>
+
+                <div class="flex items-center bg-gray-200/50 p-1 rounded-2xl border border-white/50">
+                    <button onclick="switchView('grid')" id="btnViewGrid" class="p-2 rounded-xl bg-white text-ios-blue shadow-sm transition-all" title="Grid View">
+                        <i data-lucide="grid" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="switchView('table')" id="btnViewTable" class="p-2 rounded-xl text-gray-600 hover:text-gray-900 transition-all" title="Table View">
+                        <i data-lucide="list" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Status Bar -->
+        <div class="flex items-center justify-between text-xs text-ios-textSecondary px-2">
+            <span id="resultCountText" class="font-semibold">Loading stations...</span>
+            <span id="lastUpdatedText" class="flex items-center gap-1.5">
+                <i data-lucide="clock" class="w-3.5 h-3.5"></i> Connecting to Cloudflare Worker...
+            </span>
+        </div>
+
+        <!-- Grid View -->
+        <section id="gridView" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="glass-card rounded-3xl p-6 h-48 animate-pulse space-y-4">
+                <div class="h-4 bg-gray-200 rounded-full w-3/4"></div>
+                <div class="h-3 bg-gray-200 rounded-full w-1/2"></div>
+                <div class="h-10 bg-gray-200 rounded-2xl w-full mt-6"></div>
+            </div>
+        </section>
+
+        <!-- Table View -->
+        <section id="tableView" class="hidden glass-card rounded-3xl overflow-hidden shadow-ios-card">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-blue-50/60 text-xs font-bold text-ios-textSecondary uppercase tracking-wider border-b border-blue-100">
+                        <tr>
+                            <th class="py-4 px-6">Station Name</th>
+                            <th class="py-4 px-6">District</th>
+                            <th class="py-4 px-6">1-Hour Rain</th>
+                            <th class="py-4 px-6">24-Hour Rain</th>
+                            <th class="py-4 px-6">Status</th>
+                            <th class="py-4 px-6 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-gray-100/70 font-medium">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal -->
+    <div id="detailModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+        <div class="glass-card rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-white transform scale-95 transition-all duration-300 max-h-[90vh] overflow-y-auto" id="modalCard">
+            <div class="flex items-start justify-between pb-4 border-b border-gray-100">
+                <div>
+                    <span id="modalDistrict" class="text-xs font-bold text-ios-blue uppercase tracking-wider">District Name</span>
+                    <h3 id="modalStationTitle" class="text-xl font-extrabold text-gray-900 mt-0.5">Station Name</h3>
+                </div>
+                <button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-all">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="py-4 space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-blue-50/70 p-4 rounded-2xl border border-blue-100/50">
+                        <span class="text-xs text-gray-500 font-semibold block mb-1">Past 1 Hour</span>
+                        <div class="text-2xl font-extrabold text-gray-900" id="modalRain1h">0.0 <span class="text-xs font-semibold text-gray-500">mm</span></div>
+                    </div>
+                    <div class="bg-blue-50/70 p-4 rounded-2xl border border-blue-100/50">
+                        <span class="text-xs text-gray-500 font-semibold block mb-1">Past 24 Hours</span>
+                        <div class="text-2xl font-extrabold text-gray-900" id="modalRain24h">0.0 <span class="text-xs font-semibold text-gray-500">mm</span></div>
+                    </div>
+                </div>
+
+                <div class="bg-white/80 p-4 rounded-2xl border border-blue-50">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                            <i data-lucide="bar-chart-3" class="w-4 h-4 text-ios-blue"></i> Historical Trend (24h - 72h mm)
+                        </span>
+                        <span class="text-[10px] bg-blue-100 text-ios-blue font-bold px-2 py-0.5 rounded-full">Telemetry Log</span>
+                    </div>
+                    <div class="h-44 w-full">
+                        <canvas id="stationHistoryChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="space-y-2 text-sm bg-white/60 p-4 rounded-2xl border border-white">
+                    <div class="flex justify-between py-1 border-b border-gray-100">
+                        <span class="text-gray-500">DS Division</span>
+                        <span id="modalDsd" class="font-semibold text-gray-800">--</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-gray-100">
+                        <span class="text-gray-500">Coordinates</span>
+                        <span id="modalCoords" class="font-semibold text-gray-800">--</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-gray-100">
+                        <span class="text-gray-500">Alert Level</span>
+                        <span id="modalAlertBadge" class="font-semibold text-gray-800">--</span>
+                    </div>
+                    <div class="flex justify-between py-1">
+                        <span class="text-gray-500">Last Telemetry Time</span>
+                        <span id="modalTime" class="font-mono text-xs text-ios-blue">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button id="modalShareWhatsappBtn" onclick="" class="flex-1 py-3 rounded-2xl bg-green-500 hover:bg-green-600 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-green-500/20 active:scale-98">
+                    <i data-lucide="share-2" class="w-4 h-4"></i> Share Station
+                </button>
+                <button onclick="closeModal()" class="px-6 py-3 rounded-2xl bg-ios-blue text-white font-semibold text-sm hover:bg-blue-600 transition-all shadow-md shadow-blue-500/20 active:scale-98">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Developer Footer -->
+    <footer class="mt-12 text-center text-xs text-gray-500 py-6 border-t border-blue-100/60 max-w-7xl mx-auto">
+        <p class="font-semibold text-gray-700">National Building Research Organisation (NBRI) Real-Time Weather Dashboard</p>
+        <p class="mt-1">Developed &amp; Designed by <strong class="text-ios-blue font-bold">Oshan Dissanayaka</strong> &bull; Powered by Cloudflare Workers &amp; Leaflet GIS</p>
+    </footer>
+
+    <!-- Application JavaScript Logic -->
+    <script>
+        const WORKER_PROXY_URL = "https://nbri-api-proxy.oshand.workers.dev";
+
+        let allStationsData = [];
+        let filteredStationsData = [];
+        let currentFilter = 'all';
+        let currentView = 'grid';
+        let historyChart = null;
+
+        // Leaflet Map Object & Layer Group
+        let map = null;
+        let markersLayer = null;
+
+        const REFRESH_INTERVAL_SECONDS = 300;
+        let secondsRemaining = REFRESH_INTERVAL_SECONDS;
+        let autoRefreshTimer = null;
+        let countdownInterval = null;
+
+        function initMap() {
+            if (map) return;
+            // Center default on Sri Lanka (7.8731, 80.7718)
+            map = L.map('mapContainer').setView([7.8731, 80.7718], 8);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 18,
+                attribution: '&copy; OpenStreetMap contributors | NBRI Telemetry'
+            }).addTo(map);
+
+            markersLayer = L.layerGroup().addTo(map);
+        }
+
+        function resetMapView() {
+            if (map) {
+                map.setView([7.8731, 80.7718], 8, { animate: true });
+            }
+        }
+
+        function updateMapPins() {
+            if (!map || !markersLayer) return;
+            markersLayer.clearLayers();
+
+            allStationsData.forEach(st => {
+                if (!st.lat || !st.lon || st.lat === 0 || st.lon === 0) return;
+
+                const isAlert = st.rain_24h >= 50;
+                const isRaining = st.rain_1h > 0;
+
+                // Create custom Animated HTML Markers
+                let classType = 'map-normal-dot';
+                if (isAlert) classType = 'map-pulse-alert';
+                else if (isRaining) classType = 'map-pulse-rain';
+
+                const customIcon = L.divIcon({
+                    className: 'custom-anim-icon',
+                    html: `<div class="${classType}"></div>`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                });
+
+                const marker = L.marker([st.lat, st.lon], { icon: customIcon });
+
+                const popupContent = `
+                    <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; padding: 2px;">
+                        <span style="color: #007AFF; font-weight: 700; text-transform: uppercase;">${st.district}</span>
+                        <h4 style="font-size: 14px; font-weight: 800; margin: 2px 0; color: #1C1C1E;">${st.name}</h4>
+                        <div style="margin-top: 6px; font-weight: 600; color: #374151;">
+                            <span>24h Rain: </span><b style="color: #007AFF; font-size: 13px;">${st.rain_24h.toFixed(1)} mm</b>
+                        </div>
+                        <button onclick="openModal('${st.id}')" style="margin-top: 8px; width: 100%; padding: 5px; background: #007AFF; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">View Details</button>
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent);
+                markersLayer.addLayer(marker);
+            });
+        }
+
+        function startAutoRefreshTimer() {
+            secondsRemaining = REFRESH_INTERVAL_SECONDS;
+            if (countdownInterval) clearInterval(countdownInterval);
+            if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
+
+            countdownInterval = setInterval(() => {
+                secondsRemaining--;
+                if (secondsRemaining <= 0) secondsRemaining = 0;
+                updateCountdownDisplay();
+            }, 1000);
+
+            autoRefreshTimer = setTimeout(() => { fetchStationData(); }, REFRESH_INTERVAL_SECONDS * 1000);
+        }
+
+        function updateCountdownDisplay() {
+            const timerElem = document.getElementById('countdownTimer');
+            if (!timerElem) return;
+            const mins = Math.floor(secondsRemaining / 60);
+            const secs = secondsRemaining % 60;
+            timerElem.innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function manualRefresh() { fetchStationData(); }
+
+        async function fetchStationData() {
+            const refreshIcon = document.getElementById('refreshIcon');
+            if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+            try {
+                const response = await fetch(WORKER_PROXY_URL, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP status: ${response.status}`);
+
+                const rawData = await response.json();
+                
+                let items = [];
+                if (rawData && Array.isArray(rawData.data)) items = rawData.data;
+                else if (Array.isArray(rawData)) items = rawData;
+
+                if (items.length > 0) {
+                    allStationsData = items.map(normalizeStationData);
+                    document.getElementById('lastUpdatedText').innerHTML = `<i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-500"></i> ${allStationsData.length} Live NBRI Stations Synced`;
+                    
+                    updateMapPins();
+                } else {
+                    throw new Error("Empty array returned from NBRI Worker API");
+                }
+            } catch (err) {
+                console.error("Live Worker API Fetch Error:", err);
+                document.getElementById('lastUpdatedText').innerHTML = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-500"></i> API Network Sync Error`;
+            } finally {
+                if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+                lucide.createIcons();
+                updateDashboard();
+                startAutoRefreshTimer();
+            }
+        }
+
+        function normalizeStationData(item, index) {
+            const name = item.location || item.location_en || item.gnd_en || `Station #${index + 1}`;
+            const district = item.district_en || item.district || 'Sri Lanka';
+            const dsd = item.dsd_en || item.dsd || '-';
+            
+            const r1 = parseFloat(item['1h_mm'] ?? item.curr_mm ?? 0);
+            const r24 = parseFloat(item['24h_mm'] ?? 0);
+            const r48 = parseFloat(item['48h_mm'] ?? 0);
+            const r72 = parseFloat(item['72h_mm'] ?? 0);
+            
+            const lat = parseFloat(item.lat || 6.927);
+            const lon = parseFloat(item.lng || item.lon || 79.861);
+
+            return {
+                id: item.id || String(index + 1),
+                name: String(name),
+                district: String(district),
+                dsd: String(dsd),
+                rain_1h: isNaN(r1) ? 0 : r1,
+                rain_24h: isNaN(r24) ? 0 : r24,
+                rain_48h: isNaN(r48) ? 0 : r48,
+                rain_72h: isNaN(r72) ? 0 : r72,
+                status: item.live_status_label || 'Normal',
+                updated_at: item.date_time || 'Just now',
+                lat: isNaN(lat) ? 6.927 : lat,
+                lon: isNaN(lon) ? 79.861 : lon,
+                history: [isNaN(r1) ? 0 : r1, isNaN(r24) ? 0 : r24, isNaN(r48) ? 0 : r48, isNaN(r72) ? 0 : r72]
+            };
+        }
+
+        function updateDashboard() {
+            calculateSummaryStats();
+            renderTopRainfallCards();
+            handleSearchFilter();
+        }
+
+        function calculateSummaryStats() {
+            const total = allStationsData.length;
+            const raining = allStationsData.filter(s => s.rain_1h > 0).length;
+            const alerts = allStationsData.filter(s => s.rain_24h >= 50).length;
+
+            let maxStation = allStationsData[0] || { name: 'None', district: '-', rain_24h: 0 };
+            allStationsData.forEach(s => {
+                if (s.rain_24h > maxStation.rain_24h) maxStation = s;
+            });
+
+            document.getElementById('statTotal').innerText = total;
+            document.getElementById('statRaining').innerText = raining;
+            document.getElementById('statAlerts').innerText = alerts;
+            
+            document.getElementById('statPeak').innerHTML = `${maxStation.rain_24h.toFixed(1)} <span class="text-sm font-semibold text-gray-500">mm</span>`;
+            document.getElementById('statPeakLocation').innerText = `${maxStation.name} (${maxStation.district})`;
+        }
+
+        function renderTopRainfallCards() {
+            const container = document.getElementById('topRainfallCards');
+            if (!container) return;
+
+            const sorted = [...allStationsData].sort((a, b) => b.rain_24h - a.rain_24h).slice(0, 3);
+            if (sorted.length === 0) {
+                container.innerHTML = `<div class="col-span-3 text-center py-4 text-gray-500 text-xs">No rainfall data recorded</div>`;
+                return;
+            }
+
+            container.innerHTML = sorted.map((st, idx) => {
+                const rankLabels = ['🥇 1st Highest', '🥈 2nd Highest', '🥉 3rd Highest'];
+                const rankColor = idx === 0 ? 'border-amber-400 bg-amber-50/50' : (idx === 1 ? 'border-blue-300 bg-blue-50/50' : 'border-slate-300 bg-slate-50/50');
+                
+                return `
+                    <div onclick="openModal('${st.id}')" class="p-4 rounded-2xl border ${rankColor} cursor-pointer hover:shadow-md transition-all space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-bold text-gray-700">${rankLabels[idx]}</span>
+                            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/80 text-ios-blue border border-blue-100">${st.district}</span>
+                        </div>
+                        <h3 class="font-extrabold text-base text-gray-900 truncate">${st.name}</h3>
+                        <div class="flex items-baseline justify-between pt-1">
+                            <span class="text-xs text-gray-500">24h Rain:</span>
+                            <span class="text-xl font-extrabold text-ios-blue">${st.rain_24h.toFixed(1)} <span class="text-xs font-semibold text-gray-500">mm</span></span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function handleSearchFilter() {
+            const searchVal = document.getElementById('searchInput').value.toLowerCase().trim();
+
+            filteredStationsData = allStationsData.filter(st => {
+                const matchesSearch = st.name.toLowerCase().includes(searchVal) || st.district.toLowerCase().includes(searchVal) || st.dsd.toLowerCase().includes(searchVal);
+                if (!matchesSearch) return false;
+                if (currentFilter === 'raining') return st.rain_1h > 0;
+                if (currentFilter === 'alerts') return st.rain_24h >= 50;
+                return true;
+            });
+
+            document.getElementById('resultCountText').innerText = `Showing ${filteredStationsData.length} of ${allStationsData.length} stations`;
+
+            if (currentView === 'grid') renderGridView();
+            else renderTableView();
+        }
+
+        function setFilter(filterType) {
+            currentFilter = filterType;
+            const btnAll = document.getElementById('btnFilterAll');
+            const btnRaining = document.getElementById('btnFilterRaining');
+            const btnAlerts = document.getElementById('btnFilterAlerts');
+
+            [btnAll, btnRaining, btnAlerts].forEach(b => { if(b) b.className = "px-3 py-2 rounded-xl transition-all text-gray-600 hover:text-gray-900"; });
+
+            if (filterType === 'all') btnAll.className = "px-3 py-2 rounded-xl transition-all bg-white text-ios-blue shadow-sm font-bold";
+            else if (filterType === 'raining') btnRaining.className = "px-3 py-2 rounded-xl transition-all bg-white text-ios-blue shadow-sm font-bold";
+            else if (filterType === 'alerts') btnAlerts.className = "px-3 py-2 rounded-xl transition-all bg-white text-ios-blue shadow-sm font-bold";
+
+            handleSearchFilter();
+        }
+
+        function switchView(viewType) {
+            currentView = viewType;
+            const gridContainer = document.getElementById('gridView');
+            const tableContainer = document.getElementById('tableView');
+
+            if (viewType === 'grid') {
+                gridContainer.classList.remove('hidden');
+                tableContainer.classList.add('hidden');
+                document.getElementById('btnViewGrid').className = "p-2 rounded-xl bg-white text-ios-blue shadow-sm transition-all";
+                document.getElementById('btnViewTable').className = "p-2 rounded-xl text-gray-600 hover:text-gray-900 transition-all";
+                renderGridView();
+            } else {
+                gridContainer.classList.add('hidden');
+                tableContainer.classList.remove('hidden');
+                document.getElementById('btnViewTable').className = "p-2 rounded-xl bg-white text-ios-blue shadow-sm transition-all";
+                document.getElementById('btnViewGrid').className = "p-2 rounded-xl text-gray-600 hover:text-gray-900 transition-all";
+                renderTableView();
+            }
+        }
+
+        function renderGridView() {
+            const container = document.getElementById('gridView');
+            if (filteredStationsData.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-12 glass-card rounded-3xl">
+                        <i data-lucide="search-x" class="w-12 h-12 text-gray-300 mx-auto mb-3"></i>
+                        <p class="text-sm font-semibold text-gray-600">No matching stations found</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = filteredStationsData.map(st => {
+                const isAlert = st.rain_24h >= 50;
+                const isRaining = st.rain_1h > 0;
+
+                let statusBadge = `<span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-[11px] font-bold">${st.status}</span>`;
+                if (isAlert) statusBadge = `<span class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold border border-amber-200">High Alert</span>`;
+                else if (isRaining) statusBadge = `<span class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold border border-emerald-200">Active Rain</span>`;
+
+                return `
+                    <div onclick="openModal('${st.id}')" class="glass-card rounded-3xl p-5 shadow-ios-card hover:shadow-ios-floating transition-all duration-300 cursor-pointer flex flex-col justify-between space-y-4 border border-white hover:border-blue-200 group">
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <span class="text-xs font-bold text-ios-blue uppercase tracking-wider">${st.district}</span>
+                                <h3 class="font-extrabold text-base text-gray-900 group-hover:text-ios-blue transition-colors line-clamp-1">${st.name}</h3>
+                            </div>
+                            ${statusBadge}
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50">
+                            <div>
+                                <span class="text-[11px] text-gray-500 font-semibold block">1-Hour Rain</span>
+                                <span class="text-lg font-extrabold text-gray-900">${st.rain_1h.toFixed(1)} <span class="text-xs text-gray-500 font-medium">mm</span></span>
+                            </div>
+                            <div>
+                                <span class="text-[11px] text-gray-500 font-semibold block">24-Hour Rain</span>
+                                <span class="text-lg font-extrabold text-ios-blue">${st.rain_24h.toFixed(1)} <span class="text-xs text-gray-500 font-medium">mm</span></span>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between text-xs text-gray-400 pt-1 border-t border-gray-100">
+                            <span class="flex items-center gap-1"><i data-lucide="radio" class="w-3.5 h-3.5 text-emerald-500"></i> ${st.updated_at}</span>
+                            <span class="text-ios-blue font-semibold group-hover:underline flex items-center gap-1">Details <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i></span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        function renderTableView() {
+            const body = document.getElementById('tableBody');
+            if (filteredStationsData.length === 0) {
+                body.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-gray-400 text-xs">No station telemetry available.</td></tr>`;
+                return;
+            }
+
+            body.innerHTML = filteredStationsData.map(st => {
+                const isAlert = st.rain_24h >= 50;
+                const isRaining = st.rain_1h > 0;
+
+                let statusBadge = `<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">${st.status}</span>`;
+                if (isAlert) statusBadge = `<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">High Alert</span>`;
+                else if (isRaining) statusBadge = `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">Raining</span>`;
+
+                return `
+                    <tr class="hover:bg-blue-50/40 transition-colors">
+                        <td class="py-3.5 px-6 font-bold text-gray-900">${st.name}</td>
+                        <td class="py-3.5 px-6 text-gray-600">${st.district}</td>
+                        <td class="py-3.5 px-6 font-semibold text-gray-800">${st.rain_1h.toFixed(1)} mm</td>
+                        <td class="py-3.5 px-6 font-bold text-ios-blue">${st.rain_24h.toFixed(1)} mm</td>
+                        <td class="py-3.5 px-6">${statusBadge}</td>
+                        <td class="py-3.5 px-6 text-right">
+                            <button onclick="openModal('${st.id}')" class="px-3 py-1.5 rounded-xl bg-blue-100 hover:bg-ios-blue hover:text-white text-ios-blue font-semibold text-xs transition-all">
+                                View
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function openModal(stationId) {
+            const st = allStationsData.find(s => String(s.id) === String(stationId));
+            if (!st) return;
+
+            document.getElementById('modalDistrict').innerText = st.district;
+            document.getElementById('modalStationTitle').innerText = st.name;
+            document.getElementById('modalDsd').innerText = st.dsd;
+            document.getElementById('modalRain1h').innerHTML = `${st.rain_1h.toFixed(1)} <span class="text-xs font-semibold text-gray-500">mm</span>`;
+            document.getElementById('modalRain24h').innerHTML = `${st.rain_24h.toFixed(1)} <span class="text-xs font-semibold text-gray-500">mm</span>`;
+            document.getElementById('modalCoords').innerText = `${st.lat.toFixed(4)}° N, ${st.lon.toFixed(4)}° E`;
+            document.getElementById('modalTime').innerText = st.updated_at;
+
+            const alertBadgeElem = document.getElementById('modalAlertBadge');
+            if (st.rain_24h >= 50) alertBadgeElem.innerHTML = `<span class="text-amber-600 font-bold">High Precipitation Alert (&gt;50mm)</span>`;
+            else if (st.rain_1h > 0) alertBadgeElem.innerHTML = `<span class="text-emerald-600 font-bold">Active Rain</span>`;
+            else alertBadgeElem.innerHTML = `<span class="text-gray-500">${st.status}</span>`;
+
+            document.getElementById('modalShareWhatsappBtn').setAttribute('onclick', `shareSingleStation('${st.id}')`);
+            renderStationChart(st);
+
+            const modal = document.getElementById('detailModal');
+            const card = document.getElementById('modalCard');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            card.classList.remove('scale-95');
+            card.classList.add('scale-100');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('detailModal');
+            const card = document.getElementById('modalCard');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            card.classList.remove('scale-100');
+            card.classList.add('scale-95');
+        }
+
+        function renderStationChart(station) {
+            const ctx = document.getElementById('stationHistoryChart').getContext('2d');
+            if (historyChart) historyChart.destroy();
+
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['1h Rain', '24h Rain', '48h Rain', '72h Rain'],
+                    datasets: [{
+                        label: 'Rainfall (mm)',
+                        data: station.history,
+                        borderColor: '#007AFF',
+                        backgroundColor: 'rgba(0, 122, 255, 0.12)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#007AFF',
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { family: 'Plus Jakarta Sans', size: 10 } } },
+                        x: { grid: { display: false }, ticks: { font: { family: 'Plus Jakarta Sans', size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function shareOnWhatsApp() {
+            const rainingCount = allStationsData.filter(s => s.rain_1h > 0).length;
+            const alertCount = allStationsData.filter(s => s.rain_24h >= 50).length;
+            let maxStation = allStationsData[0] || { name: 'None', rain_24h: 0 };
+            allStationsData.forEach(s => { if (s.rain_24h > maxStation.rain_24h) maxStation = s; });
+
+            const text = `🌧️ *NBRI Weather & Rainfall Report* 🇱🇰\n\n` +
+                         `📊 *Total Stations:* ${allStationsData.length}\n` +
+                         `☔ *Raining Now:* ${rainingCount}\n` +
+                         `⚠️ *Rain Alerts (>50mm):* ${alertCount}\n` +
+                         `🏆 *Peak Rainfall:* ${maxStation.name} (${maxStation.rain_24h.toFixed(1)} mm)\n\n` +
+                         `💻 *Developer:* Oshan Dissanayaka\n` +
+                         `🔗 *Source API:* server.nbri.lk`;
+
+            window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+        }
+
+        function shareSingleStation(stationId) {
+            const st = allStationsData.find(s => String(s.id) === String(stationId));
+            if (!st) return;
+
+            const text = `🌧️ *NBRI Station Rainfall Alert* 🇱🇰\n\n` +
+                         `📍 *Station:* ${st.name}\n` +
+                         `🏙️ *District:* ${st.district} (${st.dsd})\n` +
+                         `⏱️ *Past 1 Hour:* ${st.rain_1h.toFixed(1)} mm\n` +
+                         `🌧️ *Past 24 Hours:* ${st.rain_24h.toFixed(1)} mm\n\n` +
+                         `💻 *Developer:* Oshan Dissanayaka\n` +
+                         `🔗 *API:* server.nbri.lk`;
+
+            window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+        }
+
+        function findNearestStation() {
+            if (!navigator.geolocation) {
+                alert("Geolocation is not supported by your browser.");
+                return;
+            }
+
+            const alertContainer = document.getElementById('locationAlert');
+            const titleElem = document.getElementById('nearestStationTitle');
+            const subElem = document.getElementById('nearestStationSub');
+
+            alertContainer.classList.remove('hidden');
+            titleElem.innerText = "Locating GPS position...";
+            subElem.innerText = "Please allow location permissions.";
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const userLat = pos.coords.latitude;
+                    const userLon = pos.coords.longitude;
+                    let nearest = null;
+                    let minDist = Infinity;
+
+                    allStationsData.forEach(st => {
+                        const dist = getDistanceKm(userLat, userLon, st.lat, st.lon);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearest = st;
+                        }
+                    });
+
+                    if (nearest) {
+                        titleElem.innerText = `Nearest Station: ${nearest.name} (${nearest.district})`;
+                        subElem.innerText = `Distance: ${minDist.toFixed(1)} km away • 24h Rain: ${nearest.rain_24h.toFixed(1)} mm`;
+                        openModal(nearest.id);
+                        if (map) map.setView([nearest.lat, nearest.lon], 12, { animate: true });
+                    }
+                },
+                (err) => {
+                    titleElem.innerText = "Location Error";
+                    subElem.innerText = "Could not fetch GPS coordinates. Please enable location services.";
+                }
+            );
+        }
+
+        function dismissLocationAlert() {
+            document.getElementById('locationAlert').classList.add('hidden');
+        }
+
+        function getDistanceKm(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+        }
+
+        window.onload = function() {
+            lucide.createIcons();
+            initMap();
+            fetchStationData();
+        };
+    </script>
+</body>
+</html>
